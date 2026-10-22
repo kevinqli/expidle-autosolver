@@ -30,9 +30,16 @@ def find_circles(image: np.ndarray) -> (np.ndarray, list[list]):
     return image, circles
 
 
+def top_of_leftmost_column(circles: list[list]) -> list:
+    # columns are ~80px apart, so everything within 20px of the leftmost x is the same column
+    # (rounding x to tens split a column whose centers jittered between 84 and 86)
+    min_x = min(circle[0] for circle in circles)
+    return min((circle for circle in circles if circle[0] - min_x < 20), key=lambda x: x[1])
+
+
 def sort_circles_to_grid(circles: list[list]) -> list[list]:
     # sorting points to right indexes
-    start_point = min(circles, key=lambda x: (round(x[0], -1), x[1]))
+    start_point = top_of_leftmost_column(circles)
 
     start_x = start_point[0]
     start_y = start_point[1]
@@ -40,18 +47,25 @@ def sort_circles_to_grid(circles: list[list]) -> list[list]:
     sorted_circles = [start_point]
     circles.remove(start_point)
     index = 0
+    misses = 0
 
     while len(circles) != 0:
-        if round(start_y - circles[index][1], -1) in (40, 50) and round(circles[index][0] - start_x, -1) in (80, 90):
+        # up-right neighbour; 70 is for iOS where tiles are ~78px apart after scaling
+        if round(start_y - circles[index][1], -1) in (40, 50) and round(circles[index][0] - start_x, -1) in (70, 80, 90):
             start_y = circles[index][1]
             start_x = circles[index][0]
             sorted_circles.append(circles[index])
             circles.remove(circles[index])
+            misses = 0
         if len(sorted_circles) in (4, 9, 15, 22, 28, 33):
-            start_x, start_y, _ = min(circles, key=lambda x: (round(x[0], -1), x[1]))
+            start_x, start_y, _ = top_of_leftmost_column(circles)
             sorted_circles.append([start_x, start_y, _])
             circles.remove([start_x, start_y, _])
+            misses = 0
         index += 1
+        misses += 1
+        if misses > 2 * len(circles) + 2:
+            raise RuntimeError(f"could not sort circles into the grid, stuck after {len(sorted_circles)} tiles")
         if index >= len(circles):
             index = 0
 
