@@ -1,8 +1,15 @@
 import cv2
 
-from anroid_connector import get_screenshot, image_path, tap_screen, restart_game
-from image_processing import find_circles, sort_circles_to_grid, get_grid_with_colors
+PLATFORM = "ios"  # "android" or "ios"
+
+if PLATFORM == "ios":
+    from ios_connector import get_screenshot, image_path, tap_screen, restart_game
+else:
+    from anroid_connector import get_screenshot, image_path, tap_screen, restart_game
+from image_processing import find_circles, sort_circles_to_grid, get_grid_with_colors, is_solved
 from tile import Tile, find_neighbours
+
+SOLVE_ATTEMPTS = 3
 
 neighbours_list = [find_neighbours(i) for i in range(0, 37)]
 
@@ -73,21 +80,39 @@ def solve_puzzle(grid: list[Tile], max_color: int):
     return grid
 
 
+def read_board():
+    get_screenshot()
+    photo = cv2.imread(image_path)
+
+    formatted_image, circles_list = find_circles(photo)
+    if len(circles_list) != 37:
+        raise RuntimeError(f"found {len(circles_list)} tiles instead of 37, check {image_path}")
+    return formatted_image, circles_list
+
+
 def solve_puzzle_on_phone(max_color: int, times: int):
     for i in range(1, times + 1):
-        get_screenshot()
-        photo = cv2.imread(image_path)
+        for attempt in range(SOLVE_ATTEMPTS + 1):
+            formatted_image, circles_list = read_board()
+            # on iOS a dropped tap would make restart_game hit "I Give Up!", so check the screen before claiming
+            if is_solved(formatted_image, circles_list):
+                if attempt > 0:
+                    break
+                raise RuntimeError("all tiles look the same before solving: set Color Scheme to Grayscale or claim the last puzzle")
+            if attempt == SOLVE_ATTEMPTS:
+                raise RuntimeError(f"puzzle {i} still unsolved after {SOLVE_ATTEMPTS} attempts, check {image_path}")
 
-        formatted_image, circles_list = find_circles(photo)
-        sorted_circles_list = sort_circles_to_grid(circles_list)
-        tile_grid = get_grid_with_colors(formatted_image, sorted_circles_list, max_color)
+            sorted_circles_list = sort_circles_to_grid(circles_list)
+            tile_grid = get_grid_with_colors(formatted_image, sorted_circles_list, max_color, PLATFORM)
 
-        solve_puzzle(tile_grid, max_color)
+            solve_puzzle(tile_grid, max_color)
+            for tap in taps_list:
+                for count in range(tap[2]):
+                    tap_screen(tap[0], tap[1])
+            taps_list.clear()
+            if PLATFORM == "android":
+                break
         print(f"solved {i} puzzle!")
-        for tap in taps_list:
-            for count in range(tap[2]):
-                tap_screen(tap[0], tap[1])
-        taps_list.clear()
         restart_game()
 
 

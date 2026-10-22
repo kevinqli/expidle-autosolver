@@ -16,6 +16,12 @@ expert_colors = {
     (90.0, 90.0, 90.0): 5
 }
 
+# iPhone Mirroring renders the Grayscale scheme with other shades: median gray of a tile for each state
+ios_gray_levels = {
+    2: [18, 75],  # Hard uses the darkest and lightest Expert shades, like on Android
+    6: [18, 29, 39, 51, 62, 75]
+}
+
 
 def find_circles(image: np.ndarray) -> (np.ndarray, list[list]):
     y, x, _ = image.shape
@@ -72,21 +78,40 @@ def sort_circles_to_grid(circles: list[list]) -> list[list]:
     return sorted_circles
 
 
-def get_grid_with_colors(image, circles: list[list], mode: int) -> list[Tile]:
+def is_solved(image, circles: list[list]) -> bool:
+    # a solved board is drawn with one uniform fill on every tile
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    fills = []
+    for circle in circles:
+        circle_img = np.zeros(gray_image.shape, np.uint8)
+        cv2.circle(circle_img, (circle[0], circle[1]), circle[2], 255, -1)
+        fills.append(np.median(gray_image[circle_img > 0]))
+    return max(fills) - min(fills) < 5
+
+
+def get_grid_with_colors(image, circles: list[list], mode: int, platform: str = "android") -> list[Tile]:
     grid = []
 
     colors = hard_colors if mode == 2 else expert_colors
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     for i in range(len(circles)):
         circle = circles[i]
         # draw the outer circle
         circle_img = np.zeros((image.shape[0], image.shape[1]), np.uint8)
         cv2.circle(circle_img, (circle[0], circle[1]), circle[2], (255, 255, 255), -1)
-        # get average color
-        color = cv2.mean(image, mask=circle_img)[:3]
-        color = tuple([round(i, -1) for i in color])
-        color = (70.0, 70.0, 70.0) if color == (60.0, 60.0, 60.0) else color
-        grid.append(Tile(circle[0], circle[1], colors[color]))
+        if platform == "ios":
+            # median ignores the arrow or number drawn on the tile, so it works in both display modes
+            gray = np.median(gray_image[circle_img > 0])
+            levels = ios_gray_levels[mode]
+            color_index = min(range(mode), key=lambda k: abs(levels[k] - gray))
+        else:
+            # get average color
+            color = cv2.mean(image, mask=circle_img)[:3]
+            color = tuple([round(i, -1) for i in color])
+            color = (70.0, 70.0, 70.0) if color == (60.0, 60.0, 60.0) else color
+            color_index = colors[color]
+        grid.append(Tile(circle[0], circle[1], color_index))
         cv2.circle(image, (circle[0], circle[1]), circle[2], (0, 255, 0), 2)
         cv2.putText(image, f"{i}", (circle[0] - 13, circle[1] + 10), 2, 1, (255, 255, 255))
 
